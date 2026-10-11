@@ -1,0 +1,17 @@
+{
+  "name": "noktra-crawler-engine",
+  "version": "0.1.0",
+  "description": "Discovers website routes with Playwright and exports them to routes.json (optionally exports auth state)",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": "./src/index.js",
+  "bin": {
+    "noktra-crawl": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js"
+  },
+  "dependencies": {
+    "playwright": "^1.64.0"
+  }
+}

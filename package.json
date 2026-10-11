@@ -1,0 +1,19 @@
+{
+  "name": "noktra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "noktra: beginner-friendly monorepo with three independent visual regression engines: crawler, snapshot, diff",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "crawl": "node packages/crawler-engine/src/cli.js",
+    "snapshot": "node packages/snapshot-engine/src/cli.js",
+    "diff": "node packages/diff-engine/src/cli.js",
+    "install:browser": "npx playwright install chromium"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-11T14:28:52.913Z",
+  "baselinePath": "a.png",
+  "comparisonPath": "b.png",
+  "baselineSize": {
+    "width": 100,
+    "height": 100
+  },
+  "comparisonSize": {
+    "width": 100,
+    "height": 100
+  },
+  "threshold": 0.1,
+  "maxDiffPercent": 0,
+  "status": "compared",
+  "diffPath": "d2.png",
+  "diffPixels": 100,
+  "totalPixels": 10000,
+  "diffPercent": 1,
+  "changed": true,
+  "passed": false,
+  "error": null
+}
