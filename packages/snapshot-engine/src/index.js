@@ -134,9 +134,10 @@ export function looksLikeLoginRedirect(requestedUrl, finalUrl) {
  * @param {string} loginUrl Page to open for logging in.
  * @param {{width: number, height: number}} viewport Viewport size for later screenshots.
  * @param {(msg: string) => void} log Logging function.
+ * @param {{username: string, password: string}} [httpCredentials] Credentials for HTTP (basic) authentication.
  * @returns {Promise<{browser: object, context: object}>} The live browser and context to capture with.
  */
-export async function loginAndKeepBrowser(loginUrl, viewport, log) {
+export async function loginAndKeepBrowser(loginUrl, viewport, log, httpCredentials) {
   // Launch a visible window so the user can type credentials.
   let browser;
   // Launch failures get a friendly message.
@@ -148,7 +149,7 @@ export async function loginAndKeepBrowser(loginUrl, viewport, log) {
     throw new Error(`Could not launch Chromium. Run "npx playwright install chromium" first.\nDetails: ${error.message}`);
   }
   // Set the viewport now because it cannot be changed after the context exists.
-  const context = await browser.newContext({ viewport });
+  const context = await browser.newContext({ viewport, httpCredentials });
   // One tab for logging in; captureUrls will open its own tab in the same context.
   const page = await context.newPage();
   // Open the login page.
@@ -195,6 +196,7 @@ function warnOnHostnameMismatch(storageState, urls, log) {
  * @param {boolean} [options.fullPage=false] Capture the entire scrollable page, not just the viewport.
  * @param {number} [options.timeoutMs=30000] Navigation timeout per page.
  * @param {object} [options.storageState] Playwright storage state imported from a file.
+ * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
  * @param {object} [options.context] An already logged-in Playwright context to reuse (from loginAndKeepBrowser).
  * @param {(msg: string) => void} [options.log] Logging function.
  * @returns {Promise<object>} The capture manifest (same shape as capture-manifest.json).
@@ -208,6 +210,7 @@ export async function captureUrls(options) {
   const fullPage = options.fullPage ?? false;
   const timeoutMs = options.timeoutMs ?? 30000;
   const storageState = options.storageState;
+  const httpCredentials = options.httpCredentials;
   const existingContext = options.context;
   const log = options.log ?? console.log;
 
@@ -253,7 +256,7 @@ export async function captureUrls(options) {
       throw new Error(`Could not launch Chromium. Run "npx playwright install chromium" first.\nDetails: ${error.message}`);
     }
     // Create a context with the chosen viewport and (optionally) the imported login session.
-    context = await browser.newContext({ viewport: { width, height }, storageState });
+    context = await browser.newContext({ viewport: { width, height }, storageState, httpCredentials });
   }
 
   // Collects one record per URL.

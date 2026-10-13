@@ -6,6 +6,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 // Import readline so we can pause and wait for the user to press Enter after logging in.
 import readline from "node:readline/promises";
+// Import gunzip so compressed sitemaps (sitemap.xml.gz) can be read.
+import { gunzipSync } from "node:zlib";
 
 // The version number written into routes.json so future tools know how to read it.
 export const ROUTES_SCHEMA_VERSION = 1;
@@ -22,6 +24,22 @@ export async function waitForEnter(message) {
   await rl.question(message);
   // Close the interface so Node can exit cleanly later.
   rl.close();
+}
+
+/**
+ * Add a protocol to a URL typed without one, e.g. "example.com" -> "https://example.com".
+ * Local addresses get http:// because dev servers rarely serve HTTPS.
+ * @param {string} rawUrl A URL, with or without a protocol.
+ * @returns {string} The URL with a protocol; URLs that already have one are returned unchanged.
+ */
+export function withProtocol(rawUrl) {
+  const trimmed = rawUrl.trim();
+  // Already has a scheme like "https://" (or "ftp://", which normalizeUrl rejects later).
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) return trimmed;
+  // "//example.com" is protocol-relative; drop the slashes before adding one.
+  const bare = trimmed.replace(/^\/+/, "");
+  const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(bare);
+  return `${isLocal ? "http" : "https"}://${bare}`;
 }
 
 /**
@@ -61,6 +79,29 @@ export function isSameOrigin(urlA, urlB) {
   return new URL(urlA).origin === new URL(urlB).origin;
 }
 
+// Links matching any of these are never visited, because following them ends the logged-in session.
+// Matched against both the URL and the link text, e.g. "/logout", "/sign-out", or a "Log off" button.
+// The (?<![a-z]) guard stops matches inside other words, e.g. "catalog-outlet".
+export const DEFAULT_EXCLUDE_PATTERNS = [
+  /(?<![a-z])log[\s_-]?out/i,
+  /(?<![a-z])log[\s_-]?off/i,
+  /(?<![a-z])sign[\s_-]?out/i,
+  /(?<![a-z])sign[\s_-]?off/i,
+];
+
+/**
+ * Check whether a link should be skipped because its URL or text matches an exclude pattern.
+ * @param {string} url Normalized absolute URL of the link.
+ * @param {string} text Visible text of the link (empty when unknown).
+ * @param {RegExp[]} patterns Patterns to test.
+ * @returns {boolean} True when the link must not be visited.
+ */
+export function isExcludedLink(url, text, patterns) {
+  // Test only the path and query so a domain like "signoff.com" does not exclude every page.
+  const { pathname, search } = new URL(url);
+  return patterns.some((pattern) => pattern.test(pathname + search) || pattern.test(text));
+}
+
 /**
  * Write a JSON file, creating parent directories first, with optional restrictive permissions.
  * @param {string} filePath Where to write the file.
@@ -85,7 +126,10 @@ export async function writeJsonFile(filePath, data, mode) {
  * @param {number} [options.maxPages=25] Stop after this many pages have been visited.
  * @param {number} [options.timeoutMs=15000] Per-page navigation timeout in milliseconds.
  * @param {boolean} [options.waitForLogin=true] Pause so the user can log in before crawling.
+ * @param {boolean} [options.headless=!waitForLogin] Run without a visible window; by default a window is shown only for login.
  * @param {string} [options.authStatePath] If set, save cookies/localStorage here after login.
+ * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
+ * @param {RegExp[]} [options.excludePatterns=DEFAULT_EXCLUDE_PATTERNS] Links matching these are skipped (logout links by default).
  * @param {(msg: string) => void} [options.log] Logging function; defaults to console.log.
  * @returns {Promise<object>} The route manifest object (same shape as routes.json).
  */
@@ -95,11 +139,15 @@ export async function crawlSite(options) {
   const maxPages = options.maxPages ?? 25;
   const timeoutMs = options.timeoutMs ?? 15000;
   const waitForLogin = options.waitForLogin ?? true;
+  const headless = options.headless ?? !waitForLogin;
   const authStatePath = options.authStatePath;
+  const httpCredentials = options.httpCredentials;
+  const excludePatterns = options.excludePatterns ?? DEFAULT_EXCLUDE_PATTERNS;
   const log = options.log ?? console.log;
 
   // Validate the starting URL up front so the user gets a clear message instead of a browser error.
-  const normalizedStart = normalizeUrl(startUrl, undefined);
+  // Accept addresses typed without a protocol, e.g. "example.com".
+  const normalizedStart = normalizeUrl(withProtocol(startUrl), undefined);
   // If normalization failed the URL is not a valid http(s) address.
   if (!normalizedStart) {
     // Throw an Error with a human-readable message; the CLI prints it and exits with a failure code.
@@ -110,8 +158,8 @@ export async function crawlSite(options) {
   let browser;
   // Wrap the launch in try/catch to turn Playwright's error into a friendlier one.
   try {
-    // Launch a visible (non-headless) Chromium window so the user can log in by hand.
-    browser = await chromium.launch({ headless: false });
+    // Show a window only when the user has to log in by hand; otherwise crawl in the background.
+    browser = await chromium.launch({ headless });
   } catch (error) {
     // Most launch failures mean the browser binary was never downloaded.
     throw new Error(
@@ -120,7 +168,8 @@ export async function crawlSite(options) {
   }
 
   // A browser context is an isolated browser profile (its own cookies and storage).
-  const context = await browser.newContext();
+  // When HTTP credentials are given, Playwright answers the site's basic-auth challenge automatically.
+  const context = await browser.newContext({ httpCredentials });
   // A page is a single tab inside that context.
   const page = await context.newPage();
 
@@ -141,7 +190,7 @@ export async function crawlSite(options) {
     // Normalize the URL the frame navigated to.
     const navigatedUrl = normalizeUrl(frame.url(), undefined);
     // Add it to the queue if it is new and on the same site.
-    if (navigatedUrl && isSameOrigin(navigatedUrl, normalizedStart) && !discovered.has(navigatedUrl) && !queue.includes(navigatedUrl)) {
+    if (navigatedUrl && isSameOrigin(navigatedUrl, normalizedStart) && !isExcludedLink(navigatedUrl, "", excludePatterns) && !discovered.has(navigatedUrl) && !queue.includes(navigatedUrl)) {
       // Queue it so it gets visited and recorded like any other link.
       queue.push(navigatedUrl);
     }
@@ -203,13 +252,16 @@ export async function crawlSite(options) {
           discovered.set(finalUrl, { url: finalUrl, title: route.title, status: "ok", error: null });
         }
         // Collect every href from every <a> element in the rendered DOM (works for SPAs too).
-        const hrefs = await page.$$eval("a[href]", (anchors) => anchors.map((a) => a.getAttribute("href")));
-        // Go through each raw href string.
-        for (const href of hrefs) {
+        // The link text is collected too, so a "Log out" link with an unhelpful URL can still be skipped.
+        const links = await page.$$eval("a[href]", (anchors) =>
+          anchors.map((a) => ({ href: a.getAttribute("href"), text: (a.textContent || a.getAttribute("aria-label") || "").trim() }))
+        );
+        // Go through each link found on the page.
+        for (const { href, text } of links) {
           // Resolve relative links against the current page and clean them up.
           const linkUrl = normalizeUrl(href, currentUrl);
           // Keep only valid, same-site links that we have not seen or queued yet.
-          if (linkUrl && isSameOrigin(linkUrl, normalizedStart) && !discovered.has(linkUrl) && !queue.includes(linkUrl)) {
+          if (linkUrl && isSameOrigin(linkUrl, normalizedStart) && !isExcludedLink(linkUrl, text, excludePatterns) && !discovered.has(linkUrl) && !queue.includes(linkUrl)) {
             // Add to the end of the queue so it is visited after the pages already waiting.
             queue.push(linkUrl);
           }
@@ -240,9 +292,138 @@ export async function crawlSite(options) {
     createdAt: new Date().toISOString(),
     // "complete" means the queue emptied; "limited" means we stopped because of maxPages.
     discoveryStatus: queue.length === 0 ? "complete" : "limited",
+    // How the routes were found: "crawl" here, "sitemap" for discoverSitemapRoutes().
+    discoverySource: "crawl",
     // Convert the Map values into a plain array for JSON.
     routes: Array.from(discovered.values()),
   };
   // Hand the manifest back to the caller (the CLI writes it to disk).
   return manifest;
+}
+
+// How many sitemap files to read at most, so a huge sitemap index cannot make discovery run forever.
+const MAX_SITEMAP_FILES = 50;
+
+/**
+ * Fetch a URL as text, returning null instead of throwing when it is missing or unreachable.
+ * @param {string} url The URL to fetch.
+ * @param {object} headers Extra request headers (e.g. Authorization for HTTP auth).
+ * @param {number} timeoutMs Give up after this many milliseconds.
+ * @returns {Promise<{text: string, finalUrl: string}|null>} The body and the URL after redirects, or null.
+ */
+async function fetchText(url, headers, timeoutMs) {
+  try {
+    // `fetch` follows redirects by default; `res.url` is where it ended up.
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    // 404s, 401s and server errors all mean "no usable file here".
+    if (!res.ok) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    // Gzip files start with the bytes 1f 8b; servers often send .xml.gz without decoding it for us.
+    const body = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes;
+    return { text: body.toString("utf8"), finalUrl: res.url };
+  } catch {
+    // Network errors and timeouts are treated the same as a missing file.
+    return null;
+  }
+}
+
+/**
+ * Pull the <loc> values out of a sitemap or sitemap index.
+ * @param {string} xml The sitemap XML text.
+ * @returns {{isIndex: boolean, locs: string[]}|null} The URLs, whether they point at more sitemaps, or null if this is not a sitemap.
+ */
+export function parseSitemap(xml) {
+  // A sitemap is a <urlset>; a sitemap index is a <sitemapindex>. Anything else (e.g. a login page) is not a sitemap.
+  const isIndex = /<sitemapindex[\s>]/i.test(xml);
+  if (!isIndex && !/<urlset[\s>]/i.test(xml)) return null;
+  // Decode the five XML entities; "&amp;" is common in URLs with query strings.
+  const decode = (value) =>
+    value.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" })[name]);
+  // <loc> may wrap its URL in CDATA, so strip that too.
+  const locs = Array.from(xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*(.*?)\s*(?:\]\]>)?\s*<\/loc>/gis), (match) => decode(match[1]));
+  return { isIndex, locs };
+}
+
+/**
+ * Discover routes from the site's sitemap instead of crawling. Looks for "Sitemap:" lines in robots.txt,
+ * then /sitemap.xml and /sitemap_index.xml, and follows sitemap indexes into the sitemaps they list.
+ * No browser is launched, so this is fast and runs in the background.
+ *
+ * @param {object} options Discovery settings.
+ * @param {string} options.startUrl Any URL on the site; only its origin is used.
+ * @param {number} [options.maxPages=25] Stop after this many routes.
+ * @param {number} [options.timeoutMs=15000] Per-request timeout in milliseconds.
+ * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
+ * @param {RegExp[]} [options.excludePatterns=DEFAULT_EXCLUDE_PATTERNS] Routes matching these are left out (logout links by default).
+ * @returns {Promise<object|null>} A route manifest (same shape as crawlSite()), or null when no usable sitemap was found.
+ */
+export async function discoverSitemapRoutes(options) {
+  const maxPages = options.maxPages ?? 25;
+  const timeoutMs = options.timeoutMs ?? 15000;
+  const excludePatterns = options.excludePatterns ?? DEFAULT_EXCLUDE_PATTERNS;
+  const headers = {};
+  if (options.httpCredentials) {
+    // HTTP basic auth: "Basic " + base64("user:password").
+    const { username, password } = options.httpCredentials;
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
+  }
+
+  const normalizedStart = normalizeUrl(withProtocol(options.startUrl), undefined);
+  if (!normalizedStart) {
+    throw new Error(`Invalid start URL: "${options.startUrl}". Use a full address like https://example.com`);
+  }
+  // Follow redirects on the start page first (e.g. example.com -> www.example.com) so routes use the real origin.
+  const startPage = await fetchText(normalizedStart, headers, timeoutMs);
+  const origin = new URL(startPage?.finalUrl ?? normalizedStart).origin;
+
+  // Sitemaps listed in robots.txt come first, then the two conventional locations.
+  const candidates = [];
+  const robots = await fetchText(`${origin}/robots.txt`, headers, timeoutMs);
+  if (robots) {
+    for (const match of robots.text.matchAll(/^\s*sitemap:\s*(\S+)/gim)) {
+      candidates.push(match[1]);
+    }
+  }
+  candidates.push(`${origin}/sitemap.xml`, `${origin}/sitemap_index.xml`);
+
+  // Breadth-first over sitemap files, collecting page URLs until maxPages is reached.
+  const queue = [...new Set(candidates)];
+  const seenSitemaps = new Set();
+  const routes = new Map();
+  let foundSitemap = false;
+  while (queue.length > 0 && routes.size < maxPages && seenSitemaps.size < MAX_SITEMAP_FILES) {
+    const sitemapUrl = queue.shift();
+    if (seenSitemaps.has(sitemapUrl)) continue;
+    seenSitemaps.add(sitemapUrl);
+    const file = await fetchText(sitemapUrl, headers, timeoutMs);
+    const parsed = file && parseSitemap(file.text);
+    if (!parsed) continue;
+    foundSitemap = true;
+    if (parsed.isIndex) {
+      // An index lists more sitemaps; read those next.
+      queue.push(...parsed.locs);
+      continue;
+    }
+    for (const loc of parsed.locs) {
+      const url = normalizeUrl(loc, origin);
+      // Same rules as the crawler: same site only, no logout links, no duplicates.
+      if (url && isSameOrigin(url, origin) && !isExcludedLink(url, "", excludePatterns) && !routes.has(url)) {
+        // Listed routes were not visited, but "ok" lets the snapshot engine capture them; failures show up there.
+        routes.set(url, { url, title: null, status: "ok", error: null });
+        if (routes.size >= maxPages) break;
+      }
+    }
+  }
+
+  // No sitemap, or one with no pages on this site: let the caller fall back to crawling.
+  if (!foundSitemap || routes.size === 0) return null;
+  return {
+    schemaVersion: ROUTES_SCHEMA_VERSION,
+    startUrl: `${origin}/`,
+    createdAt: new Date().toISOString(),
+    // "limited" when we stopped at maxPages with sitemap entries still unread.
+    discoveryStatus: routes.size >= maxPages ? "limited" : "complete",
+    discoverySource: "sitemap",
+    routes: Array.from(routes.values()),
+  };
 }

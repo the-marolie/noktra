@@ -1,6 +1,6 @@
 # noktra-crawler-engine
 
-Discovers routes on a website by following links in a real Chromium browser, with a pause for manual login.
+Discovers routes on a website by following links in a real Chromium browser, with an optional pause for manual login.
 
 ## Files
 
@@ -10,7 +10,7 @@ Discovers routes on a website by following links in a real Chromium browser, wit
 
 ## How it works
 
-1. Launches a **visible** Chromium window and opens the start URL.
+1. Launches Chromium and opens the start URL. The window is **visible** only when it waits for login; with `--skip-login` the crawl runs headless.
 2. Waits for you to press Enter (log in first if needed). Skip with `--skip-login` on public sites.
 3. If `--auth-state` is given, saves `context.storageState()` (cookies + localStorage) to that file with mode `0600`.
 4. Breadth-first crawl: pop a URL from the queue, `page.goto()` it, wait up to 5 s for network idle, read the `<title>`, collect every `a[href]`, queue the same-origin ones not seen before. Repeat until the queue is empty or `--max-pages` is reached.

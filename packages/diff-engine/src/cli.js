@@ -158,6 +158,10 @@ async function main() {
     // Mismatch is a failed comparison.
     process.exit(2);
   }
+  // Mention a size change; the area only one image covers is already counted as changed.
+  if (result.sizeChanged) {
+    console.log(`\nImage sizes differ: baseline is ${result.baselineSize.width}x${result.baselineSize.height}, comparison is ${result.comparisonSize.width}x${result.comparisonSize.height}`);
+  }
   // Print the key numbers.
   console.log(`\nDiffering pixels: ${result.diffPixels} of ${result.totalPixels} (${result.diffPercent}%)`);
   console.log(`Result: ${result.passed ? "PASSED (unchanged within tolerance)" : "FAILED (changed)"}`);

@@ -4,7 +4,10 @@
   "description": "Compares two PNG images with pixelmatch and writes a diff image plus a JSON result",
   "type": "module",
   "main": "src/index.js",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./report": "./src/report.js"
+  },
   "bin": {
     "noktra-diff": "src/cli.js"
   },

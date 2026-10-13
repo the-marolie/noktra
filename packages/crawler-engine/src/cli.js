@@ -28,7 +28,7 @@ async function main() {
   const { values, positionals } = parseArgs({
     // Describe each flag: its type and (optionally) a default value.
     options: {
-      out: { type: "string", default: "./routes.json" },
+      out: { type: "string", default: "./routes.json", short: "o" },
       "auth-state": { type: "string" },
       "max-pages": { type: "string", default: "25" },
       timeout: { type: "string", default: "15000" },

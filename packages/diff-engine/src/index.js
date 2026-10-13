@@ -37,7 +37,54 @@ export async function readPng(filePath) {
 }
 
 /**
+ * Copy an image's pixels onto a larger transparent canvas (top-left aligned).
+ * @param {PNG} image Decoded PNG.
+ * @param {number} width Canvas width.
+ * @param {number} height Canvas height.
+ * @returns {Buffer} RGBA buffer of size width * height * 4.
+ */
+function padTo(image, width, height) {
+  // Same size: nothing to pad.
+  if (image.width === width && image.height === height) return image.data;
+  // Start fully transparent.
+  const out = Buffer.alloc(width * height * 4);
+  // Copy one source row at a time into the matching canvas row.
+  for (let y = 0; y < image.height; y += 1) {
+    image.data.copy(out, y * width * 4, y * image.width * 4, (y + 1) * image.width * 4);
+  }
+  return out;
+}
+
+/**
+ * Paint every pixel outside the shared top-left area red in the diff mask.
+ * @param {PNG} diff Diff image (canvas size) written by pixelmatch with diffMask.
+ * @param {number} sharedWidth Width covered by both images.
+ * @param {number} sharedHeight Height covered by both images.
+ * @returns {number} How many pixels were newly marked (not already flagged by pixelmatch).
+ */
+function markOutsideOverlap(diff, sharedWidth, sharedHeight) {
+  let marked = 0;
+  for (let y = 0; y < diff.height; y += 1) {
+    for (let x = 0; x < diff.width; x += 1) {
+      // Skip pixels that both images cover.
+      if (x < sharedWidth && y < sharedHeight) continue;
+      const i = (y * diff.width + x) * 4;
+      // pixelmatch leaves unchanged pixels transparent in diffMask mode; count only those.
+      if (diff.data[i + 3] === 0) marked += 1;
+      // Same red pixelmatch uses for differences.
+      diff.data[i] = 255;
+      diff.data[i + 1] = 0;
+      diff.data[i + 2] = 0;
+      diff.data[i + 3] = 255;
+    }
+  }
+  return marked;
+}
+
+/**
  * Compare two PNG images and optionally write a diff image.
+ * Images of different sizes are compared on a canvas of the larger width and height;
+ * the area that only one image covers is counted as changed.
  *
  * Percentage formula: diffPercent = (diffPixels / (width * height)) * 100
  *
@@ -71,33 +118,24 @@ export async function compareImages(baselinePath, comparisonPath, options = {}) 
     maxDiffPercent,
   };
 
-  // pixelmatch requires identical dimensions, so detect a mismatch and report it clearly.
-  if (baseline.width !== comparison.width || baseline.height !== comparison.height) {
-    // Return a failed result instead of throwing, so callers get structured information.
-    return {
-      ...base,
-      status: "dimension_mismatch",
-      diffPath: null,
-      diffPixels: null,
-      totalPixels: null,
-      diffPercent: null,
-      changed: true,
-      passed: false,
-      error: `Image sizes differ: baseline is ${baseline.width}x${baseline.height}, comparison is ${comparison.width}x${comparison.height}`,
-    };
-  }
-
-  // Dimensions are equal, so use the baseline's.
-  const width = baseline.width;
-  const height = baseline.height;
-  // Create an empty image of the same size to receive the diff visualisation.
+  // pixelmatch requires identical dimensions, so compare on a canvas big enough for both images
+  // (full-page screenshots often differ in height when content is added or removed).
+  const width = Math.max(baseline.width, comparison.width);
+  const height = Math.max(baseline.height, comparison.height);
+  const sizeChanged = baseline.width !== comparison.width || baseline.height !== comparison.height;
+  // Create an empty image of the canvas size to receive the diff visualisation.
   const diff = new PNG({ width, height });
 
   // pixelmatch compares the two RGBA buffers, paints differing pixels red into `diff.data`,
   // and returns how many pixels differed. `threshold` controls how different a pixel's color
   // must be (in YIQ color space) before it counts; 0.1 is the library's recommended default.
   // `diffMask: true` leaves unchanged pixels transparent, so the PNG works as an overlay in the HTML report.
-  const diffPixels = pixelmatch(baseline.data, comparison.data, diff.data, width, height, { threshold, diffMask: true });
+  let diffPixels = pixelmatch(padTo(baseline, width, height), padTo(comparison, width, height), diff.data, width, height, { threshold, diffMask: true });
+
+  // Pixels that exist in only one image (outside the shared area) always count as changed.
+  if (sizeChanged) {
+    diffPixels += markOutsideOverlap(diff, Math.min(baseline.width, comparison.width), Math.min(baseline.height, comparison.height));
+  }
 
   // Total number of pixels in the image.
   const totalPixels = width * height;
@@ -115,8 +153,10 @@ export async function compareImages(baselinePath, comparisonPath, options = {}) 
   // Build the final result.
   return {
     ...base,
-    // "compared" means both images were readable and the same size.
+    // "compared" means both images were readable (sizes may differ; see sizeChanged).
     status: "compared",
+    // True when the images had different dimensions; the extra area is counted as changed.
+    sizeChanged,
     // Where the diff image was written, or null.
     diffPath: diffPath ?? null,
     diffPixels,

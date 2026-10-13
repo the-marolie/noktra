@@ -11,9 +11,13 @@
     "crawl": "node packages/crawler-engine/src/cli.js",
     "snapshot": "node packages/snapshot-engine/src/cli.js",
     "diff": "node packages/diff-engine/src/cli.js",
-    "install:browser": "npx playwright install chromium"
+    "install:browser": "npx playwright install chromium",
+    "wizard": "node wizard/src/index.js"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1"
   }
 }

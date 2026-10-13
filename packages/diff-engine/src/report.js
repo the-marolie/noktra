@@ -60,6 +60,9 @@ async function toSnapshotData(result) {
     base,
     next,
     diff,
+    // Image sizes (null for skipped results), used to align images on a shared canvas.
+    baseSize: result.baselineSize ?? null,
+    nextSize: result.comparisonSize ?? null,
   };
 }
 
@@ -202,10 +205,18 @@ export async function buildHtmlReport(results) {
     }).join("");
   }
 
+  // When the two images differ in size, every frame becomes a canvas of the larger width and height
+  // (the same canvas the diff mask was drawn on) and each image keeps its true scale inside it.
+  function sizesDiffer(s) { return s.baseSize && s.nextSize && (s.baseSize.width !== s.nextSize.width || s.baseSize.height !== s.nextSize.height); }
+  function canvas(s) { return { width: Math.max(s.baseSize.width, s.nextSize.width), height: Math.max(s.baseSize.height, s.nextSize.height) }; }
+  // CSS for a frame: fixes its aspect ratio to the canvas.
+  function frameCss(s) { if (!sizesDiffer(s)) return ""; const c = canvas(s); return "aspect-ratio:" + c.width + " / " + c.height + ";"; }
+  // Inline width for an image as a share of the canvas width.
+  function sizeStyle(s, size) { return sizesDiffer(s) ? "width:" + (size.width / canvas(s).width) * 100 + "%;height:auto;" : ""; }
   // An <img> or a placeholder when the image is missing.
-  function img(src, alt) { return src ? '<img src="' + src + '" alt="' + alt + '">' : '<div class="empty">No ' + alt + ' image</div>'; }
+  function img(src, alt, style) { return src ? '<img src="' + src + '" style="' + (style || "") + '" alt="' + alt + '">' : '<div class="empty">No ' + alt + ' image</div>'; }
   // The "new" image drawn on top of "base" in overlay and swipe modes.
-  function topImg(s, style) { return s.next ? '<img class="top" src="' + s.next + '" style="' + style + '" alt="new">' : ""; }
+  function topImg(s, style) { return s.next ? '<img class="top" src="' + s.next + '" style="' + sizeStyle(s, s.nextSize) + style + '" alt="new">' : ""; }
   // The red mask layered over the "new" image (only when a diff image exists).
   function mask(s) { return s.diff ? '<img class="mask" src="' + s.diff + '" alt="diff highlights">' : ""; }
 
@@ -223,19 +234,27 @@ export async function buildHtmlReport(results) {
     let html = "";
     if (s.outcome === "mismatch") html = '<div class="note">' + esc(s.error) + ' — both images are shown but cannot be highlighted.</div>';
     if (s.outcome === "skipped") html = '<div class="note">' + esc(s.error) + '</div>';
+    if (s.outcome !== "mismatch" && sizesDiffer(s)) {
+      html = '<div class="note">Sizes differ: base is ' + s.baseSize.width + "×" + s.baseSize.height + ", new is " +
+        s.nextSize.width + "×" + s.nextSize.height + ". The area only one image covers is highlighted as changed.</div>";
+    }
+    // Frame attributes and per-image sizing (no-ops when both images are the same size).
+    const fs = frameCss(s) ? ' style="' + frameCss(s) + '"' : "";
+    const baseImg = img(s.base, "base", s.baseSize ? sizeStyle(s, s.baseSize) : "");
+    const nextImg = img(s.next, "new", s.nextSize ? sizeStyle(s, s.nextSize) : "");
     // Side by side: Base left, New (with highlights) right.
     if (state.mode === "side") {
-      html += '<div class="cols"><div class="col"><div class="cap">Base</div><div class="frame">' + img(s.base, "base") + '</div></div>' +
-        '<div class="col"><div class="cap">New</div><div class="frame' + fx + '">' + img(s.next, "new") + mask(s) + '</div></div></div>';
+      html += '<div class="cols"><div class="col"><div class="cap">Base</div><div class="frame"' + fs + '>' + baseImg + '</div></div>' +
+        '<div class="col"><div class="cap">New</div><div class="frame' + fx + '"' + fs + '>' + nextImg + mask(s) + '</div></div></div>';
     // Overlay: New drawn on top of Base at adjustable opacity, highlights on top.
     } else if (state.mode === "overlay") {
-      html += '<div class="cap">Base under New</div><div class="frame' + fx + '">' + img(s.base, "base") + topImg(s, "opacity:" + state.opacity) + mask(s) + '</div>';
+      html += '<div class="cap">Base under New</div><div class="frame' + fx + '"' + fs + '>' + baseImg + topImg(s, "opacity:" + state.opacity) + mask(s) + '</div>';
     // Swipe: Base on the left of the divider, New on the right.
     } else if (state.mode === "swipe") {
-      html += '<div class="cap">Base ◀ swipe ▶ New (drag on the image)</div><div class="frame swipe' + fx + '" style="--cut:' + state.cut + '%">' + img(s.base, "base") + topImg(s, "") + mask(s) + '<div class="handle"></div></div>';
+      html += '<div class="cap">Base ◀ swipe ▶ New (drag on the image)</div><div class="frame swipe' + fx + '" style="--cut:' + state.cut + '%;' + frameCss(s) + '">' + baseImg + topImg(s, "") + mask(s) + '<div class="handle"></div></div>';
     // New only: just the comparison image with highlights.
     } else {
-      html += '<div class="cap">New</div><div class="frame' + fx + '">' + img(s.next, "new") + mask(s) + '</div>';
+      html += '<div class="cap">New</div><div class="frame' + fx + '"' + fs + '>' + nextImg + mask(s) + '</div>';
     }
     // Replace the stage contents.
     stage.innerHTML = html;
