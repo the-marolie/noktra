@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "createdAt": "2026-10-11T12:05:00.000Z",
-  "viewport": { "width": 1280, "height": 720, "fullPage": false },
+  "viewport": { "width": 1280, "height": 720, "fullPage": true },
   "outputDir": "./screenshots",
   "captures": [
-    { "url": "https://example.com/", "imagePath": "screenshots/001-home.png", "width": 1280, "height": 720, "status": "ok", "error": null, "finalUrl": "https://example.com/" },
+    { "url": "https://example.com/", "imagePath": "screenshots/001-home.png", "width": 1280, "height": 1840, "status": "ok", "error": null, "finalUrl": "https://example.com/" },
     { "url": "https://app.example.com/dashboard", "imagePath": "screenshots/002-dashboard.png", "width": null, "height": null, "status": "auth_required", "error": "Redirected to https://app.example.com/login; the session is missing or expired. Re-authenticate and try again.", "finalUrl": "https://app.example.com/login" }
   ]
 }

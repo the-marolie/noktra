@@ -1,6 +1,6 @@
 {
   "name": "noktra-snapshot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Captures screenshots of URLs with Playwright, with imported or standalone authentication",
   "keywords": [
     "visual-regression",

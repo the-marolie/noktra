@@ -14,6 +14,7 @@
   "threshold": 0.1,
   "maxDiffPercent": 0,
   "status": "compared",
+  "sizeChanged": false,
   "diffPath": "d2.png",
   "diffPixels": 100,
   "totalPixels": 10000,

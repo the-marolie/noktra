@@ -1,6 +1,6 @@
 {
   "name": "noktra-crawler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Discovers website routes with Playwright and exports them to routes.json (optionally exports auth state)",
   "keywords": [
     "visual-regression",

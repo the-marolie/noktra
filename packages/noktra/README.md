@@ -1,50 +1,51 @@
 # noktra
 
-Visual regression testing for websites: point it at two sites (for example production and staging), and it finds the pages, screenshots every page on both, compares them pixel by pixel and writes an HTML report.
+Visual regression testing for websites. Point noktra at two versions of a site (for example production and staging), and it finds the pages, takes a full-height screenshot of every page on both, compares them pixel by pixel, and writes an HTML report showing what changed.
 
-This package installs the whole toolkit:
+This package installs the complete toolkit: the interactive wizard and all three engines, with every command.
 
-| Package | What it is | Command |
-|---|---|---|
-| [`noktra-cli`](https://www.npmjs.com/package/noktra-cli) | The interactive wizard that runs everything end to end | `noktra` (or `noktra-cli`) |
-| [`noktra-crawler`](https://www.npmjs.com/package/noktra-crawler) | Finds a site's routes from its sitemap, or by crawling | `noktra-crawl` |
-| [`noktra-snapshot`](https://www.npmjs.com/package/noktra-snapshot) | Takes full-height screenshots of a list of routes | `noktra-snapshot` |
-| [`noktra-diff`](https://www.npmjs.com/package/noktra-diff) | Compares screenshots and writes diff images and an HTML report | `noktra-diff` |
-
-Only need one piece? Each package can be installed on its own, e.g. `npm install noktra-diff`.
-
-## Quick start
+## Install
 
 ```bash
-npm install -g noktra             # installs all four packages and all five commands
-npx playwright install chromium   # one-time browser download (~150 MB)
-noktra-cli                        # run the wizard (`noktra` does the same)
+npm install -g noktra
 ```
 
-After a global install the commands are on your PATH, so no `npx` is needed: `noktra`, `noktra-cli`, `noktra-crawl`, `noktra-snapshot` and `noktra-diff`.
+Requires Node.js 20 or newer. noktra uses Chromium (about 150 MB) through Playwright; the wizard checks for it on first run and offers to install it. You can also install it yourself with `npx playwright install chromium`.
 
-Other ways to run it:
+## Usage
 
 ```bash
-npx noktra                        # without installing anything
-npm install -D noktra             # in a project; then: npx noktra-cli
+noktra-cli
 ```
 
-Requires Node.js 20 or newer.
+The wizard asks for a project name, the two site URLs, whether the sites need HTTP authentication or a login, whether the site is a single-page app, the maximum number of routes, and whether to write an HTML report. It then discovers the routes, screenshots both sites, compares them and writes the results to `projects/<name>/`.
 
-## Rerunning a project
+`noktra` starts the same wizard. To run it without installing anything, use `npx noktra`.
 
-The wizard saves your answers to `projects/<name>/noktra.config.json`. Load them to skip the questions:
+### Rerun a project
+
+The wizard saves your answers to `projects/<name>/noktra.config.json`. Pass it back to skip the questions:
 
 ```bash
 noktra-cli --config projects/<name>/noktra.config.json
 ```
 
-See the [`noktra-cli` README](https://www.npmjs.com/package/noktra-cli) for everything the wizard does and the files it writes.
+The HTTP authentication password is never saved. Enter it when asked, or set it in the `NOKTRA_HTTP_PASSWORD` environment variable.
+
+## What's included
+
+| Package | What it does | Command |
+|---|---|---|
+| [`noktra-cli`](https://www.npmjs.com/package/noktra-cli) | The interactive wizard that runs the whole process | `noktra-cli` (also `noktra`) |
+| [`noktra-crawler`](https://www.npmjs.com/package/noktra-crawler) | Finds a site's routes from its sitemap or by crawling; handles login | `noktra-crawl` |
+| [`noktra-snapshot`](https://www.npmjs.com/package/noktra-snapshot) | Takes full-height screenshots of a URL or a list of routes | `noktra-snapshot` |
+| [`noktra-diff`](https://www.npmjs.com/package/noktra-diff) | Compares screenshots, writes diff images and the HTML report | `noktra-diff` |
+
+After a global install, all of these commands are on your PATH. Each package can also be installed on its own, for example `npm install noktra-diff` when you only need image comparison.
 
 ## Using the engines from code
 
-Installing `noktra` also makes the engines importable:
+Installing `noktra` makes the engines importable in your own scripts:
 
 ```js
 import { discoverSitemapRoutes, crawlSite } from "noktra-crawler";
@@ -52,6 +53,12 @@ import { captureUrls } from "noktra-snapshot";
 import { compareManifests } from "noktra-diff";
 import { writeHtmlReport } from "noktra-diff/report";
 ```
+
+Each package's page documents its API.
+
+## Documentation
+
+Full documentation, including how it works, the output files, security notes and limitations, is in the [project README on GitHub](https://github.com/the-marolie/noktra#readme).
 
 ## License
 

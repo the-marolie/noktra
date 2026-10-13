@@ -1,6 +1,6 @@
 {
   "name": "noktra",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Visual regression testing toolkit: installs the noktra wizard and all three engines (crawler, snapshot, diff)",
   "keywords": [
     "visual-regression",
@@ -29,10 +29,10 @@
     "noktra-diff": "bin/noktra-diff.js"
   },
   "dependencies": {
-    "noktra-cli": "^0.1.0",
-    "noktra-crawler": "^0.1.0",
-    "noktra-diff": "^0.1.0",
-    "noktra-snapshot": "^0.1.0"
+    "noktra-cli": "^0.1.1",
+    "noktra-crawler": "^0.1.1",
+    "noktra-diff": "^0.1.1",
+    "noktra-snapshot": "^0.1.1"
   },
   "files": [
     "bin"

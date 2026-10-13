@@ -1,6 +1,6 @@
 {
   "name": "noktra-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Visual regression wizard: discovers routes, screenshots two sites and diffs them, with an HTML report",
   "keywords": [
     "visual-regression",
@@ -32,9 +32,9 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.8.1",
-    "noktra-crawler": "^0.1.0",
-    "noktra-diff": "^0.1.0",
-    "noktra-snapshot": "^0.1.0"
+    "noktra-crawler": "^0.1.1",
+    "noktra-diff": "^0.1.1",
+    "noktra-snapshot": "^0.1.1"
   },
   "files": [
     "src"
