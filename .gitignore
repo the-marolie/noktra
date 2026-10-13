@@ -5,3 +5,4 @@ screenshots/
 projects/
 *.png
 !examples/*.png
+RELEASE-STEPS.md
