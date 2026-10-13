@@ -12,7 +12,8 @@ import { captureUrls, loginAndKeepBrowser, readJsonFile, urlsFromRouteManifest }
 
 // Usage text.
 const HELP = `
-Usage: npm run snapshot -- [--url <url> | --routes <routes.json>] [options]
+Usage: noktra-snapshot [--url <url> | --routes <routes.json>] [options]
+       (inside the noktra repo: npm run snapshot -- [options])
 
 Input (choose one):
   --url <url>           Capture a single URL
@@ -27,7 +28,7 @@ Options:
   --manifest <file>     Where to write the capture manifest (default: <out>/capture-manifest.json)
   --width <px>          Viewport width (default: 1280)
   --height <px>         Viewport height (default: 720)
-  --full-page           Capture the whole scrollable page
+  --viewport-only       Capture only the visible viewport (default: the whole page height)
   --timeout <ms>        Navigation timeout per page (default: 30000)
   --help                Show this message
 `;
@@ -48,7 +49,9 @@ async function main() {
       manifest: { type: "string" },
       width: { type: "string", default: "1280" },
       height: { type: "string", default: "720" },
+      // Full-page capture is the default; --full-page is still accepted so older commands keep working.
       "full-page": { type: "boolean", default: false },
+      "viewport-only": { type: "boolean", default: false },
       timeout: { type: "string", default: "30000" },
       help: { type: "boolean", default: false },
     },
@@ -101,7 +104,7 @@ async function main() {
     outputDir: values.out,
     width: Number(values.width),
     height: Number(values.height),
-    fullPage: values["full-page"],
+    fullPage: !values["viewport-only"],
     timeoutMs: Number(values.timeout),
     storageState,
     context: session ? session.context : undefined,

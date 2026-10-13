@@ -1,5 +1,6 @@
 // Import Playwright's Chromium launcher. Playwright drives real browsers from Node.js.
-import { chromium } from "playwright";
+// `request` makes plain HTTP requests (no browser) that can share a login session with the browser.
+import { chromium, request } from "playwright";
 // Import Node's promise-based file system module so we can write JSON files with `await`.
 import fs from "node:fs/promises";
 // Import Node's path helpers so we can create output directories safely on any OS.
@@ -79,15 +80,28 @@ export function isSameOrigin(urlA, urlB) {
   return new URL(urlA).origin === new URL(urlB).origin;
 }
 
-// Links matching any of these are never visited, because following them ends the logged-in session.
-// Matched against both the URL and the link text, e.g. "/logout", "/sign-out", or a "Log off" button.
+// Links that end the logged-in session, e.g. "/logout", "/sign-out", or a "Log off" button.
 // The (?<![a-z]) guard stops matches inside other words, e.g. "catalog-outlet".
-export const DEFAULT_EXCLUDE_PATTERNS = [
+export const LOGOUT_PATTERNS = [
   /(?<![a-z])log[\s_-]?out/i,
   /(?<![a-z])log[\s_-]?off/i,
   /(?<![a-z])sign[\s_-]?out/i,
   /(?<![a-z])sign[\s_-]?off/i,
 ];
+
+// Links that change data just by being opened (a GET request), e.g. "/cart/add/5", "/posts/3/delete",
+// "?action=remove", or an "Add to cart" link. The word must start a path segment, query key/value, or word of
+// link text, and be a whole word: "/address", "/updates" and slugs like "/how-to-delete-your-account" are still crawled.
+// Form pages such as "/new" or "/edit" are left alone: opening them only shows a form.
+export const CONTENT_CHANGING_PATTERNS = [
+  /(?:^|[\s/?&=])(delete|remove|destroy|trash|purge|add|cancel|approve|reject|publish|unpublish|toggle|duplicate|clone|unsubscribe)(?![a-z])/i,
+];
+
+// Links matching any of these are never visited. Matched against the URL and the link text.
+export const DEFAULT_EXCLUDE_PATTERNS = [...LOGOUT_PATTERNS, ...CONTENT_CHANGING_PATTERNS];
+
+// Link text longer than this is treated as content (e.g. a post titled "How to delete your account"), not an action.
+const MAX_ACTION_TEXT_WORDS = 4;
 
 /**
  * Check whether a link should be skipped because its URL or text matches an exclude pattern.
@@ -97,9 +111,15 @@ export const DEFAULT_EXCLUDE_PATTERNS = [
  * @returns {boolean} True when the link must not be visited.
  */
 export function isExcludedLink(url, text, patterns) {
+  // Split camelCase into words ("deleteUser" -> "delete-User") so whole-word patterns still match.
+  const splitWords = (value) => value.replace(/([a-z])([A-Z])/g, "$1-$2");
   // Test only the path and query so a domain like "signoff.com" does not exclude every page.
   const { pathname, search } = new URL(url);
-  return patterns.some((pattern) => pattern.test(pathname + search) || pattern.test(text));
+  const target = splitWords(pathname + search);
+  // Only short, button-like link text counts.
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const actionText = words.length <= MAX_ACTION_TEXT_WORDS ? splitWords(text) : "";
+  return patterns.some((pattern) => pattern.test(target) || pattern.test(actionText));
 }
 
 /**
@@ -119,6 +139,50 @@ export async function writeJsonFile(filePath, data, mode) {
 }
 
 /**
+ * Open a visible browser on the site, let the user log in, and save the session (cookies + localStorage).
+ * Run this before discoverSitemapRoutes() or crawlSite() on sites behind a login, and pass the result as `storageState`.
+ *
+ * @param {object} options Login settings.
+ * @param {string} options.startUrl The page to open for logging in.
+ * @param {string} [options.authStatePath] If set, also write the session to this file.
+ * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
+ * @param {number} [options.timeoutMs=15000] Navigation timeout in milliseconds.
+ * @param {(msg: string) => void} [options.log] Logging function; defaults to console.log.
+ * @returns {Promise<object>} The Playwright storage state.
+ */
+export async function saveLoginState(options) {
+  const startUrl = normalizeUrl(withProtocol(options.startUrl), undefined);
+  if (!startUrl) {
+    throw new Error(`Invalid start URL: "${options.startUrl}". Use a full address like https://example.com`);
+  }
+  const log = options.log ?? console.log;
+  let browser;
+  try {
+    // Visible, because the user types their credentials into it.
+    browser = await chromium.launch({ headless: false });
+  } catch (error) {
+    throw new Error(
+      `Could not launch Chromium. Run "npx playwright install chromium" first.\nDetails: ${error.message}`
+    );
+  }
+  try {
+    const context = await browser.newContext({ httpCredentials: options.httpCredentials });
+    const page = await context.newPage();
+    await page.goto(startUrl, { waitUntil: "domcontentloaded", timeout: options.timeoutMs ?? 15000 });
+    await waitForEnter("\nLog in in the browser window, then press Enter here to continue... ");
+    const state = await context.storageState();
+    if (options.authStatePath) {
+      // 0o600 so only the current user can read it (ignored on Windows).
+      await writeJsonFile(options.authStatePath, state, 0o600);
+      log(`Saved authentication state to ${options.authStatePath} (keep this file private)`);
+    }
+    return state;
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
  * Crawl a website starting from one URL and discover same-origin pages by following links.
  *
  * @param {object} options Crawl settings.
@@ -129,6 +193,7 @@ export async function writeJsonFile(filePath, data, mode) {
  * @param {boolean} [options.headless=!waitForLogin] Run without a visible window; by default a window is shown only for login.
  * @param {string} [options.authStatePath] If set, save cookies/localStorage here after login.
  * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
+ * @param {object} [options.storageState] A saved login session to start from (from saveLoginState()), instead of pausing for login.
  * @param {RegExp[]} [options.excludePatterns=DEFAULT_EXCLUDE_PATTERNS] Links matching these are skipped (logout links by default).
  * @param {(msg: string) => void} [options.log] Logging function; defaults to console.log.
  * @returns {Promise<object>} The route manifest object (same shape as routes.json).
@@ -142,6 +207,7 @@ export async function crawlSite(options) {
   const headless = options.headless ?? !waitForLogin;
   const authStatePath = options.authStatePath;
   const httpCredentials = options.httpCredentials;
+  const storageState = options.storageState;
   const excludePatterns = options.excludePatterns ?? DEFAULT_EXCLUDE_PATTERNS;
   const log = options.log ?? console.log;
 
@@ -169,7 +235,7 @@ export async function crawlSite(options) {
 
   // A browser context is an isolated browser profile (its own cookies and storage).
   // When HTTP credentials are given, Playwright answers the site's basic-auth challenge automatically.
-  const context = await browser.newContext({ httpCredentials });
+  const context = await browser.newContext({ httpCredentials, storageState });
   // A page is a single tab inside that context.
   const page = await context.newPage();
 
@@ -306,21 +372,20 @@ const MAX_SITEMAP_FILES = 50;
 
 /**
  * Fetch a URL as text, returning null instead of throwing when it is missing or unreachable.
+ * @param {object} api A Playwright APIRequestContext (carries cookies and HTTP credentials).
  * @param {string} url The URL to fetch.
- * @param {object} headers Extra request headers (e.g. Authorization for HTTP auth).
- * @param {number} timeoutMs Give up after this many milliseconds.
  * @returns {Promise<{text: string, finalUrl: string}|null>} The body and the URL after redirects, or null.
  */
-async function fetchText(url, headers, timeoutMs) {
+async function fetchText(api, url) {
   try {
-    // `fetch` follows redirects by default; `res.url` is where it ended up.
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    // Redirects are followed automatically; `res.url()` is where it ended up.
+    const res = await api.get(url);
     // 404s, 401s and server errors all mean "no usable file here".
-    if (!res.ok) return null;
-    const bytes = Buffer.from(await res.arrayBuffer());
+    if (!res.ok()) return null;
+    const bytes = await res.body();
     // Gzip files start with the bytes 1f 8b; servers often send .xml.gz without decoding it for us.
     const body = bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes;
-    return { text: body.toString("utf8"), finalUrl: res.url };
+    return { text: body.toString("utf8"), finalUrl: res.url() };
   } catch {
     // Network errors and timeouts are treated the same as a missing file.
     return null;
@@ -347,13 +412,15 @@ export function parseSitemap(xml) {
 /**
  * Discover routes from the site's sitemap instead of crawling. Looks for "Sitemap:" lines in robots.txt,
  * then /sitemap.xml and /sitemap_index.xml, and follows sitemap indexes into the sitemaps they list.
- * No browser is launched, so this is fast and runs in the background.
+ * No browser is launched, so this is fast and runs in the background. For sites behind a login, log in
+ * first (see saveLoginState()) and pass the saved session as `storageState`.
  *
  * @param {object} options Discovery settings.
  * @param {string} options.startUrl Any URL on the site; only its origin is used.
  * @param {number} [options.maxPages=25] Stop after this many routes.
  * @param {number} [options.timeoutMs=15000] Per-request timeout in milliseconds.
  * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
+ * @param {object} [options.storageState] A saved login session (cookies) to send with every request.
  * @param {RegExp[]} [options.excludePatterns=DEFAULT_EXCLUDE_PATTERNS] Routes matching these are left out (logout links by default).
  * @returns {Promise<object|null>} A route manifest (same shape as crawlSite()), or null when no usable sitemap was found.
  */
@@ -361,24 +428,35 @@ export async function discoverSitemapRoutes(options) {
   const maxPages = options.maxPages ?? 25;
   const timeoutMs = options.timeoutMs ?? 15000;
   const excludePatterns = options.excludePatterns ?? DEFAULT_EXCLUDE_PATTERNS;
-  const headers = {};
-  if (options.httpCredentials) {
-    // HTTP basic auth: "Basic " + base64("user:password").
-    const { username, password } = options.httpCredentials;
-    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`;
-  }
 
   const normalizedStart = normalizeUrl(withProtocol(options.startUrl), undefined);
   if (!normalizedStart) {
     throw new Error(`Invalid start URL: "${options.startUrl}". Use a full address like https://example.com`);
   }
-  // Follow redirects on the start page first (e.g. example.com -> www.example.com) so routes use the real origin.
-  const startPage = await fetchText(normalizedStart, headers, timeoutMs);
+  // Every request goes through this context, so HTTP auth challenges are answered and login cookies are sent.
+  const api = await request.newContext({
+    httpCredentials: options.httpCredentials,
+    storageState: options.storageState,
+    timeout: timeoutMs,
+  });
+  try {
+    return await readSitemaps(api, normalizedStart, maxPages, excludePatterns);
+  } finally {
+    await api.dispose();
+  }
+}
+
+/**
+ * The sitemap search behind discoverSitemapRoutes(), using an already configured request context.
+ * @returns {Promise<object|null>} A route manifest, or null when no usable sitemap was found.
+ */
+async function readSitemaps(api, normalizedStart, maxPages, excludePatterns) {  // Follow redirects on the start page first (e.g. example.com -> www.example.com) so routes use the real origin.
+  const startPage = await fetchText(api, normalizedStart);
   const origin = new URL(startPage?.finalUrl ?? normalizedStart).origin;
 
   // Sitemaps listed in robots.txt come first, then the two conventional locations.
   const candidates = [];
-  const robots = await fetchText(`${origin}/robots.txt`, headers, timeoutMs);
+  const robots = await fetchText(api, `${origin}/robots.txt`);
   if (robots) {
     for (const match of robots.text.matchAll(/^\s*sitemap:\s*(\S+)/gim)) {
       candidates.push(match[1]);
@@ -395,7 +473,7 @@ export async function discoverSitemapRoutes(options) {
     const sitemapUrl = queue.shift();
     if (seenSitemaps.has(sitemapUrl)) continue;
     seenSitemaps.add(sitemapUrl);
-    const file = await fetchText(sitemapUrl, headers, timeoutMs);
+    const file = await fetchText(api, sitemapUrl);
     const parsed = file && parseSitemap(file.text);
     if (!parsed) continue;
     foundSitemap = true;

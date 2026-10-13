@@ -8,7 +8,8 @@ import { crawlSite, writeJsonFile } from "./index.js";
 
 // Text shown when the user passes --help or forgets the URL.
 const HELP = `
-Usage: npm run crawl -- <startUrl> [options]
+Usage: noktra-crawl <startUrl> [options]
+       (inside the noktra repo: npm run crawl -- <startUrl> [options])
 
 Options:
   --out <file>         Where to write the route manifest (default: ./routes.json)

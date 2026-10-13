@@ -6,6 +6,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 // Import readline so the standalone login workflow can wait for the user to press Enter.
 import readline from "node:readline/promises";
+// Import existsSync to check for the browser binary without launching it.
+import { existsSync } from "node:fs";
+// Import spawn and createRequire to run Playwright's own installer (the same Playwright copy this engine uses).
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
 // Version number written into capture-manifest.json.
 export const CAPTURE_SCHEMA_VERSION = 1;
@@ -13,6 +18,41 @@ export const CAPTURE_SCHEMA_VERSION = 1;
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 };
 // Path fragments that usually mean "you were sent to a login page" (used to detect expired sessions).
 const LOGIN_PATH_HINTS = ["login", "signin", "sign-in", "auth", "sso"];
+
+/**
+ * Check whether Playwright's Chromium is installed and can start.
+ * Headless runs and visible (login) windows use different Chromium builds, so both are checked:
+ * the visible build by its file, the headless one by briefly launching it.
+ * @returns {Promise<boolean>} True when both builds are ready.
+ */
+export async function isChromiumInstalled() {
+  // The visible build; also needed for the login windows.
+  if (!existsSync(chromium.executablePath())) return false;
+  try {
+    // Launching is the only public way to confirm the headless build exists.
+    const browser = await chromium.launch({ headless: true });
+    await browser.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download Chromium with Playwright's installer ("playwright install chromium"), showing its progress in the terminal.
+ * Uses the Playwright copy this engine depends on, so the downloaded build matches the version that will launch it.
+ * @returns {Promise<boolean>} True when the installer finished successfully.
+ */
+export function installChromium() {
+  // playwright/package.json is exported, so its folder (and the cli.js next to it) can be found reliably.
+  const require = createRequire(import.meta.url);
+  const cliPath = path.join(path.dirname(require.resolve("playwright/package.json")), "cli.js");
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [cliPath, "install", "chromium"], { stdio: "inherit" });
+    child.on("error", () => resolve(false));
+    child.on("exit", (code) => resolve(code === 0));
+  });
+}
 
 /**
  * Pause until the user presses Enter in the terminal.
@@ -64,7 +104,7 @@ export function urlsFromRouteManifest(manifest) {
   // Guard against files that are JSON but not a route manifest.
   if (!manifest || !Array.isArray(manifest.routes)) {
     // Explain what was expected.
-    throw new Error('Route manifest must contain a "routes" array (see crawler-engine README)');
+    throw new Error('Route manifest must contain a "routes" array (see noktra-crawler README)');
   }
   // Keep only routes that loaded successfully during the crawl.
   const okRoutes = manifest.routes.filter((route) => route.status === "ok");
@@ -185,6 +225,120 @@ function warnOnHostnameMismatch(storageState, urls, log) {
   }
 }
 
+// Tallest screenshot we will take, so an infinite-scroll page cannot produce a gigantic image.
+const MAX_FULL_PAGE_HEIGHT = 20000;
+
+/**
+ * Scroll through the page (and its main inner scroll panel, if any) so lazy-loaded content renders,
+ * then return to the top.
+ * @param {object} page A Playwright page.
+ * @returns {Promise<void>} Resolves once scrolling is finished.
+ */
+async function scrollThroughPage(page) {
+  await page.evaluate(async (maxHeight) => {
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 100));
+    // Scroll the document and every element that scrolls on its own (dashboards often scroll an inner panel).
+    const scrollers = [document.scrollingElement, ...document.querySelectorAll("*")].filter((el) => {
+      if (!el || el.scrollHeight <= el.clientHeight + 1) return false;
+      if (el === document.scrollingElement) return true;
+      const overflowY = getComputedStyle(el).overflowY;
+      return overflowY === "auto" || overflowY === "scroll";
+    });
+    for (const el of scrollers) {
+      const step = Math.max(el.clientHeight, 200);
+      for (let top = 0; top < Math.min(el.scrollHeight, maxHeight); top += step) {
+        // "instant" overrides CSS smooth scrolling, which would otherwise animate each jump.
+        el.scrollTo({ top, behavior: "instant" });
+        await pause();
+      }
+    }
+  }, MAX_FULL_PAGE_HEIGHT);
+  await scrollToTop(page);
+}
+
+/**
+ * Jump the document and every inner scroll panel back to the top, and wait until the page has repainted there.
+ * Fixed and sticky elements (headers, sidebars) are drawn at the current scroll position, so a page caught even
+ * slightly scrolled shows them partway down the full-page screenshot.
+ * @param {object} page A Playwright page.
+ * @returns {Promise<void>} Resolves once everything is at the top.
+ */
+async function scrollToTop(page) {
+  await page.evaluate(async () => {
+    const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    const scrolled = () => [document.scrollingElement, ...document.querySelectorAll("*")].filter((el) => el && el.scrollTop > 0);
+    // A few rounds, because some apps scroll themselves back (e.g. restoring a saved position) after we reset them.
+    for (let round = 0; round < 10; round += 1) {
+      const stillScrolled = scrolled();
+      if (stillScrolled.length === 0) break;
+      // "instant" overrides CSS scroll-behavior: smooth, which would animate the jump and leave the page mid-scroll.
+      for (const el of stillScrolled) el.scrollTo({ top: 0, behavior: "instant" });
+      await nextFrame();
+    }
+    // Two frames so the browser has painted the page at the top before the screenshot.
+    await nextFrame();
+    await nextFrame();
+  });
+}
+
+/**
+ * Work out how tall the viewport must be to show an inner scroll panel's whole content.
+ * Normal pages grow the document, which Playwright's fullPage option already captures. App-style layouts keep
+ * the document at 100vh and scroll an inner panel instead, which fullPage cannot see; for those the viewport
+ * has to grow by the panel's hidden height.
+ * @param {object} page A Playwright page.
+ * @returns {Promise<number>} The required viewport height, or the current one when the document itself scrolls.
+ */
+async function innerPanelHeight(page) {
+  return page.evaluate(() => {
+    const viewportHeight = window.innerHeight;
+    // The document scrolls: fullPage handles it, and growing the viewport would stretch 100vh sections.
+    if (document.scrollingElement.scrollHeight > viewportHeight + 1) return viewportHeight;
+    // Find the largest inner scroll panel; its hidden height is what needs to be revealed.
+    let panelExtra = 0;
+    let panelArea = 0;
+    for (const el of document.querySelectorAll("*")) {
+      if (el.scrollHeight <= el.clientHeight + 1) continue;
+      const overflowY = getComputedStyle(el).overflowY;
+      if (overflowY !== "auto" && overflowY !== "scroll") continue;
+      const area = el.clientWidth * el.clientHeight;
+      if (area > panelArea) {
+        panelArea = area;
+        panelExtra = el.scrollHeight - el.clientHeight;
+      }
+    }
+    return viewportHeight + panelExtra;
+  });
+}
+
+/**
+ * Take a screenshot covering the whole height of the page, including content inside an inner scroll panel.
+ * @param {object} page A Playwright page that has finished loading.
+ * @param {string} imagePath Where to save the PNG.
+ * @param {{width: number, height: number}} viewport The normal viewport, restored afterwards.
+ * @returns {Promise<void>} Resolves when the screenshot is written.
+ */
+async function captureFullPage(page, imagePath, viewport) {
+  // Trigger lazy-loaded images and sections before measuring.
+  await scrollThroughPage(page);
+  const contentHeight = Math.min(await innerPanelHeight(page), MAX_FULL_PAGE_HEIGHT);
+  try {
+    if (contentHeight > viewport.height) {
+      // Make the viewport tall enough that the inner panel stops scrolling and shows everything.
+      await page.setViewportSize({ width: viewport.width, height: contentHeight });
+      // Give the layout and any newly visible lazy content a moment to render.
+      await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(300);
+    }
+    // Reset again right before capturing, in case resizing or late content moved the scroll position.
+    await scrollToTop(page);
+    await page.screenshot({ path: imagePath, fullPage: true });
+  } finally {
+    // The next URL starts from the normal viewport again.
+    await page.setViewportSize(viewport);
+  }
+}
+
 /**
  * Capture screenshots of a list of URLs in a headless browser.
  *
@@ -193,7 +347,7 @@ function warnOnHostnameMismatch(storageState, urls, log) {
  * @param {string} [options.outputDir="./screenshots"] Folder to save PNG files into.
  * @param {number} [options.width=1280] Viewport width in pixels.
  * @param {number} [options.height=720] Viewport height in pixels.
- * @param {boolean} [options.fullPage=false] Capture the entire scrollable page, not just the viewport.
+ * @param {boolean} [options.fullPage=true] Capture the entire height of the page (including inner scroll panels), not just the viewport.
  * @param {number} [options.timeoutMs=30000] Navigation timeout per page.
  * @param {object} [options.storageState] Playwright storage state imported from a file.
  * @param {{username: string, password: string}} [options.httpCredentials] Credentials for HTTP (basic) authentication.
@@ -207,7 +361,7 @@ export async function captureUrls(options) {
   const outputDir = options.outputDir ?? "./screenshots";
   const width = options.width ?? DEFAULT_VIEWPORT.width;
   const height = options.height ?? DEFAULT_VIEWPORT.height;
-  const fullPage = options.fullPage ?? false;
+  const fullPage = options.fullPage ?? true;
   const timeoutMs = options.timeoutMs ?? 30000;
   const storageState = options.storageState;
   const httpCredentials = options.httpCredentials;
@@ -296,8 +450,12 @@ export async function captureUrls(options) {
           // Skip the screenshot for this URL.
           continue;
         }
-        // Take the screenshot; `fullPage` scrolls through the whole page when true.
-        await page.screenshot({ path: imagePath, fullPage });
+        // Take the screenshot: the whole page height by default, or just the viewport.
+        if (fullPage) {
+          await captureFullPage(page, imagePath, { width, height });
+        } else {
+          await page.screenshot({ path: imagePath });
+        }
         // Read the real pixel size from the written file (full-page height is only known afterwards).
         const size = await readPngSize(imagePath);
         // Store the dimensions.

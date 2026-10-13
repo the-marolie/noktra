@@ -1,6 +1,15 @@
-# noktra-snapshot-engine
+# noktra-snapshot
 
 Captures PNG screenshots of one URL or of every route in a crawler `routes.json`, in headless Chromium.
+
+## Install
+
+```bash
+npm install noktra-snapshot
+npx playwright install chromium   # one-time browser download (~150 MB)
+```
+
+Requires Node.js 20 or newer. For the full workflow (find routes, screenshot two sites, compare them), install [`noktra`](https://www.npmjs.com/package/noktra), which includes this package and the wizard.
 
 ## Files
 
@@ -23,14 +32,14 @@ Expired or wrong-site sessions: if a page redirects to a URL containing `login`,
 ```bash
 npm run snapshot -- --url https://example.com
 npm run snapshot -- --routes ./routes.json --auth-state ./auth-state.json --out ./run-1
-npm run snapshot -- --url https://app.example.com/dashboard --login --full-page
+npm run snapshot -- --url https://app.example.com/dashboard --login
 
 --url / --routes      input (one required)
 --auth-state / --login  authentication (optional, not both)
 --out <dir>           screenshot folder (default ./screenshots)
 --manifest <file>     capture manifest path (default <out>/capture-manifest.json)
 --width / --height    viewport in px (default 1280x720)
---full-page           capture the whole scrollable page
+--viewport-only       capture only the visible viewport (default: whole page height, including inner scroll panels)
 --timeout <ms>        per-page navigation timeout (default 30000)
 ```
 
@@ -41,7 +50,7 @@ File naming: `001-home.png`, `002-blog-post-x-1.png` (index + URL path/query wit
 ## JavaScript API
 
 ```js
-import { captureUrls } from "noktra-snapshot-engine";
+import { captureUrls } from "noktra-snapshot";
 
 const manifest = await captureUrls({
   urls: ["https://example.com/"],

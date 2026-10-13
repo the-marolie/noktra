@@ -15,8 +15,9 @@ import { writeHtmlReport } from "./report.js";
 // Usage text.
 const HELP = `
 Usage:
-  npm run diff -- <baseline.png> <comparison.png> [options]
-  npm run diff -- --baseline-manifest <a.json> --comparison-manifest <b.json> [options]
+  noktra-diff <baseline.png> <comparison.png> [options]
+  noktra-diff --baseline-manifest <a.json> --comparison-manifest <b.json> [options]
+  (inside the noktra repo: npm run diff -- [options])
 
 Options:
   --diff <file>              Where to write the diff image (default: ./diff.png)

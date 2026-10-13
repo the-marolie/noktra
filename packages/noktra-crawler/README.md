@@ -1,6 +1,15 @@
-# noktra-crawler-engine
+# noktra-crawler
 
 Discovers routes on a website by following links in a real Chromium browser, with an optional pause for manual login.
+
+## Install
+
+```bash
+npm install noktra-crawler
+npx playwright install chromium   # one-time browser download (~150 MB)
+```
+
+Requires Node.js 20 or newer. For the full workflow (find routes, screenshot two sites, compare them), install [`noktra`](https://www.npmjs.com/package/noktra), which includes this package and the wizard.
 
 ## Files
 
@@ -43,7 +52,7 @@ Exit codes: 0 success, 1 error (invalid URL, browser failed to launch, cannot wr
 ## JavaScript API
 
 ```js
-import { crawlSite } from "noktra-crawler-engine";   // or "./packages/crawler-engine/src/index.js"
+import { crawlSite } from "noktra-crawler";   // or "./packages/noktra-crawler/src/index.js"
 
 const manifest = await crawlSite({
   startUrl: "https://example.com",

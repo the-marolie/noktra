@@ -1,0 +1,43 @@
+{
+  "name": "noktra",
+  "version": "0.1.0",
+  "description": "Visual regression testing toolkit: installs the noktra wizard and all three engines (crawler, snapshot, diff)",
+  "keywords": [
+    "visual-regression",
+    "playwright",
+    "screenshot",
+    "cli",
+    "wizard"
+  ],
+  "license": "MIT",
+  "author": "the-marolie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/the-marolie/noktra.git",
+    "directory": "packages/noktra"
+  },
+  "homepage": "https://github.com/the-marolie/noktra/tree/master/packages/noktra#readme",
+  "bugs": {
+    "url": "https://github.com/the-marolie/noktra/issues"
+  },
+  "type": "module",
+  "bin": {
+    "noktra": "bin/noktra.js",
+    "noktra-cli": "bin/noktra.js",
+    "noktra-crawl": "bin/noktra-crawl.js",
+    "noktra-snapshot": "bin/noktra-snapshot.js",
+    "noktra-diff": "bin/noktra-diff.js"
+  },
+  "dependencies": {
+    "noktra-cli": "^0.1.0",
+    "noktra-crawler": "^0.1.0",
+    "noktra-diff": "^0.1.0",
+    "noktra-snapshot": "^0.1.0"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

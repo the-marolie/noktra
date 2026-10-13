@@ -189,7 +189,7 @@ export async function compareManifests(baselineManifest, comparisonManifest, opt
   // Validate both inputs are capture manifests.
   if (!Array.isArray(baselineManifest?.captures) || !Array.isArray(comparisonManifest?.captures)) {
     // Explain the expected shape.
-    throw new Error('Both files must be capture manifests with a "captures" array (see snapshot-engine README)');
+    throw new Error('Both files must be capture manifests with a "captures" array (see noktra-snapshot README)');
   }
   // Index the comparison captures by their key for quick lookup.
   const comparisonByUrl = new Map(comparisonManifest.captures.map((c) => [keyFor(c.url), c]));

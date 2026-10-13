@@ -1,0 +1,44 @@
+{
+  "name": "noktra-diff",
+  "version": "0.1.0",
+  "description": "Compares two PNG images with pixelmatch and writes a diff image plus a JSON result",
+  "keywords": [
+    "visual-regression",
+    "pixelmatch",
+    "image-diff"
+  ],
+  "license": "MIT",
+  "author": "the-marolie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/the-marolie/noktra.git",
+    "directory": "packages/noktra-diff"
+  },
+  "homepage": "https://github.com/the-marolie/noktra/tree/master/packages/noktra-diff#readme",
+  "bugs": {
+    "url": "https://github.com/the-marolie/noktra/issues"
+  },
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./report": "./src/report.js",
+    "./cli": "./src/cli.js"
+  },
+  "bin": {
+    "noktra-diff": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js"
+  },
+  "dependencies": {
+    "pixelmatch": "^7.0.0",
+    "pngjs": "^7.0.0"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

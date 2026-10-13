@@ -1,6 +1,14 @@
-# noktra-diff-engine
+# noktra-diff
 
 Compares two PNG images with [pixelmatch](https://github.com/mapbox/pixelmatch) and writes a diff image plus a JSON result. Needs no browser and no other engine.
+
+## Install
+
+```bash
+npm install noktra-diff
+```
+
+Requires Node.js 20 or newer. For the full workflow (find routes, screenshot two sites, compare them), install [`noktra`](https://www.npmjs.com/package/noktra), which includes this package and the wizard.
 
 ## Files
 
@@ -36,7 +44,7 @@ Manifest mode matches captures by `url` and skips any URL not captured with `sta
 ## JavaScript API
 
 ```js
-import { compareImages } from "noktra-diff-engine";
+import { compareImages } from "noktra-diff";
 
 const result = await compareImages("baseline.png", "comparison.png", {
   diffPath: "diff.png",      // omit to skip writing the diff image

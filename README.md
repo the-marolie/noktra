@@ -1,15 +1,19 @@
 # noktra
 
-noktra is a small, beginner-friendly monorepo with three independent JavaScript engines for visual regression testing:
+noktra is a small, beginner-friendly monorepo for visual regression testing: a wizard plus three independent JavaScript engines.
 
 | Package | What it does | Root command |
 |---|---|---|
-| `packages/crawler-engine` | Opens a site in a visible browser, lets you log in, discovers same-site links, writes `routes.json` (and optionally `auth-state.json`) | `npm run crawl` |
-| `packages/snapshot-engine` | Captures PNG screenshots of a URL or of every route in `routes.json`, writes `capture-manifest.json` | `npm run snapshot` |
-| `packages/diff-engine` | Compares two PNGs with pixelmatch, writes a diff image and `diff-result.json` | `npm run diff` |
+| `packages/noktra` | Umbrella package: installs the wizard and all three engines, and provides the `noktra` command. Published as `noktra` (`npx noktra`) | — |
+| `packages/noktra-cli` | Interactive wizard that runs the three engines end to end: finds routes, screenshots two sites, compares them, writes a report. Published as `noktra-cli` (`npx noktra-cli`) | `npm run wizard` |
+| `packages/noktra-crawler` | Opens a site in a visible browser, lets you log in, discovers same-site links, writes `routes.json` (and optionally `auth-state.json`) | `npm run crawl` |
+| `packages/noktra-snapshot` | Captures PNG screenshots of a URL or of every route in `routes.json`, writes `capture-manifest.json` | `npm run snapshot` |
+| `packages/noktra-diff` | Compares two PNGs with pixelmatch, writes a diff image and `diff-result.json` | `npm run diff` |
+
+Using the published packages instead of this repo: `npx playwright install chromium`, then `npx noktra`. See `packages/noktra/README.md`. Each package can also be installed on its own.
 
 Every engine works on its own. They connect only through plain JSON and PNG files (documented below).
-No engine imports another engine's source code.
+No engine imports another engine's source code; only the wizard imports all three.
 
 ## Folder structure
 
@@ -20,13 +24,15 @@ noktra/
 ├── README.md                    # this file
 ├── examples/                    # sample JSON artifacts and an end-to-end walkthrough
 └── packages/
-    ├── crawler-engine/
+    ├── noktra/                  # umbrella package: depends on the four below, provides the `noktra` command
+    ├── noktra-cli/              # the wizard (src/index.js), depends on the three engines below
+    ├── noktra-crawler/
     │   ├── src/index.js         # JavaScript API (crawlSite, helpers)
     │   ├── src/cli.js           # command-line wrapper around the API
     │   ├── package.json
     │   └── README.md
-    ├── snapshot-engine/         # same layout
-    └── diff-engine/             # same layout
+    ├── noktra-snapshot/         # same layout
+    └── noktra-diff/             # same layout
 ```
 
 Each package has `src/index.js` (the reusable API, importable from any Node app) and `src/cli.js` (a thin command-line wrapper). This keeps "logic" and "terminal handling" separate without extra abstractions.
@@ -53,9 +59,9 @@ The diff engine does not need a browser.
   "type": "module",                     // use ES modules (import/export) everywhere
   "workspaces": ["packages/*"],         // every folder in packages/ is its own npm package
   "scripts": {
-    "crawl":    "node packages/crawler-engine/src/cli.js",   // run the crawler CLI from the repo root
-    "snapshot": "node packages/snapshot-engine/src/cli.js",  // run the snapshot CLI
-    "diff":     "node packages/diff-engine/src/cli.js",      // run the diff CLI
+    "crawl":    "node packages/noktra-crawler/src/cli.js",   // run the crawler CLI from the repo root
+    "snapshot": "node packages/noktra-snapshot/src/cli.js",  // run the snapshot CLI
+    "diff":     "node packages/noktra-diff/src/cli.js",      // run the diff CLI
     "install:browser": "npx playwright install chromium"     // one-time Chromium download
   },
   "engines": { "node": ">=20" }        // documents the minimum Node version
@@ -116,7 +122,7 @@ This is Playwright's `storageState()` output: cookies and localStorage for every
 {
   "schemaVersion": 1,
   "createdAt": "2026-10-11T12:05:00.000Z",
-  "viewport": { "width": 1280, "height": 720, "fullPage": false },
+  "viewport": { "width": 1280, "height": 720, "fullPage": true },
   "outputDir": "./screenshots",
   "captures": [
     {
@@ -133,7 +139,7 @@ This is Playwright's `storageState()` output: cookies and localStorage for every
 
 ### diff-result.json (diff output)
 
-See `packages/diff-engine/README.md`. Key fields: `diffPixels`, `totalPixels`, `diffPercent`, `changed`, `passed`, `status`.
+See `packages/noktra-diff/README.md`. Key fields: `diffPixels`, `totalPixels`, `diffPercent`, `changed`, `passed`, `status`.
 
 ## Authentication state security
 

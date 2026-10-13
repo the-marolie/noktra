@@ -1,0 +1,45 @@
+{
+  "name": "noktra-cli",
+  "version": "0.1.0",
+  "description": "Visual regression wizard: discovers routes, screenshots two sites and diffs them, with an HTML report",
+  "keywords": [
+    "visual-regression",
+    "playwright",
+    "screenshot",
+    "cli",
+    "wizard"
+  ],
+  "license": "MIT",
+  "author": "the-marolie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/the-marolie/noktra.git",
+    "directory": "packages/noktra-cli"
+  },
+  "homepage": "https://github.com/the-marolie/noktra/tree/master/packages/noktra-cli#readme",
+  "bugs": {
+    "url": "https://github.com/the-marolie/noktra/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "noktra-cli": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.8.1",
+    "noktra-crawler": "^0.1.0",
+    "noktra-diff": "^0.1.0",
+    "noktra-snapshot": "^0.1.0"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

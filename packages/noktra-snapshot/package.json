@@ -1,0 +1,42 @@
+{
+  "name": "noktra-snapshot",
+  "version": "0.1.0",
+  "description": "Captures screenshots of URLs with Playwright, with imported or standalone authentication",
+  "keywords": [
+    "visual-regression",
+    "playwright",
+    "screenshot"
+  ],
+  "license": "MIT",
+  "author": "the-marolie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/the-marolie/noktra.git",
+    "directory": "packages/noktra-snapshot"
+  },
+  "homepage": "https://github.com/the-marolie/noktra/tree/master/packages/noktra-snapshot#readme",
+  "bugs": {
+    "url": "https://github.com/the-marolie/noktra/issues"
+  },
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cli": "./src/cli.js"
+  },
+  "bin": {
+    "noktra-snapshot": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js"
+  },
+  "dependencies": {
+    "playwright": "^1.64.0"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
